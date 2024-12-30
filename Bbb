@@ -1,0 +1,111 @@
+Here is the FastAPI implementation of your code, replacing Streamlit for API-based processing. This FastAPI application provides endpoints for PDF and image processing.
+
+FastAPI Implementation
+
+import os
+import tempfile
+import requests
+from fastapi import FastAPI, UploadFile, HTTPException
+from fastapi.responses import JSONResponse
+from Converter import pdf_to_image
+from splitter import split_pdf
+from Gemini_Text_formatter import PDF_formatter, Image_formatter
+
+# Initialize FastAPI app
+app = FastAPI()
+
+# Local API URL for conversion
+local_api_url = "http://127.0.0.1:8000/convert"
+
+
+def pdf_process(pdf_path):
+    try:
+        pdf_list = split_pdf(pdf_path)
+        final_text = ""
+        for file_path in pdf_list:
+            with open(file_path, 'rb') as f:
+                response = requests.post(local_api_url, files={'file': f})
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail="Error in local API call")
+            print("Docling Text : \n", response.text)
+            file_text = response.json().get('text', '')
+            image_path = pdf_to_image(file_path)
+            pdf_text = PDF_formatter(file_text, image_path)
+            os.remove(image_path)
+            os.remove(file_path)
+            final_text += pdf_text
+        return final_text
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing PDF: {str(e)}")
+
+
+def image_process(image_path):
+    try:
+        image_text = Image_formatter(image_path)
+        print("ImageText:  \n", image_text)
+        return image_text
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing Image: {str(e)}")
+
+
+@app.post("/process/")
+async def process_file(file: UploadFile):
+    try:
+        # Determine file extension
+        file_extension = file.filename.split(".")[-1].lower()
+        if file_extension not in ["pdf", "png", "jpg", "jpeg"]:
+            raise HTTPException(status_code=400, detail="Unsupported file type")
+
+        # Save the uploaded file temporarily
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_extension}") as temp_file:
+            temp_file.write(await file.read())
+            temp_file_path = temp_file.name
+
+        # Process the file based on its type
+        if file_extension == "pdf":
+            processed_text = pdf_process(temp_file_path)
+        else:
+            processed_text = image_process(temp_file_path)
+
+        # Clean up the temporary file
+        os.remove(temp_file_path)
+
+        return JSONResponse(content={"processed_text": processed_text})
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+
+Endpoints
+	1.	POST /process/
+	•	Description: Accepts a file (PDF, PNG, JPG, JPEG) and processes it.
+	•	Input: File upload using UploadFile.
+	•	Output: Processed text from the file.
+
+How to Run the FastAPI App
+	1.	Save the code to a file, e.g., main.py.
+	2.	Run the app using Uvicorn:
+
+uvicorn main:app --reload
+
+
+	3.	Access the API:
+	•	Upload files to http://127.0.0.1:8000/docs using the interactive Swagger UI.
+	•	You can also make POST requests to http://127.0.0.1:8000/process/ using tools like Postman or curl.
+
+Example cURL Command
+
+To test the /process/ endpoint with a file:
+
+curl -X POST "http://127.0.0.1:8000/process/" \
+     -F "file=@your_file.pdf"
+
+How This Works
+	1.	The /process/ endpoint accepts an uploaded file.
+	2.	The file is saved temporarily for processing.
+	3.	Based on the file type:
+	•	PDFs are split and processed with pdfProcess.
+	•	Images are processed with imageProcess.
+	4.	Temporary files are cleaned up after processing.
+	5.	The processed text is returned as JSON.
+
+This FastAPI implementation provides a clean, scalable, and production-ready alternative to the Streamlit application.
